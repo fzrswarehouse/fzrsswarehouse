@@ -29,7 +29,8 @@
 <body>
 <div id="game"></div>
 <script src="https://cdn.jsdelivr.net/npm/phaser@3.80.1/dist/phaser.min.js"></script>
-<script>
+<!-- 游戏源码先在容器内待命，Phaser 就绪后由下方 loader 注入执行 -->
+<script type="text/plain" id="app-src">
 "use strict";
 
 /* =========================================================================
@@ -56,6 +57,15 @@ const WHITE       = '#ffffff';                                 // 通用白
 const UI_TEXT     = WHITE;                                     // UI 文字
 
 const GEOM = { gridLineWidth: 2, boardEdgeWidth: 2.5 };
+
+/* 第十八章 18.1：提示数字/对勾的视觉规格（全部按 cellSize 比例，四档合一） */
+const HINT_NUM_SIZE = 0.38;   // 所有提示数字字号 = cellSize * 0.38（不再区分单/双提示）
+const HINT_CHK_SIZE = 0.35;   // 对勾字号统一 = cellSize * 0.35，永远紧贴对应数字
+const HINT_NUM_GAP  = 0.05;   // 双提示两个数字之间的净间距 = cellSize * 0.05
+const HINT_CHK_GAP  = 0.04;   // 对勾与数字之间的净间距 = cellSize * 0.04
+
+/* 第二十章 20.2.1：胜利覆盖层弹出前的棋盘展示时长 */
+const VICTORY_DELAY = 1500;
 
 // 页面底色与画布背景一致（避免加载前白色闪烁）
 document.body.style.backgroundColor = PALETTE.bg;
@@ -136,35 +146,7 @@ const LEVELS = [
       []
     ]
   },
-  { // 关卡三：5x5 融合教学（全果冻）
-    n: 5,
-    player: { x:3, y:1 },
-    boxes: [
-      { x:3, y:2, color:COLOR.BLUE, type:BOXTYPE.JELLY },
-      { x:3, y:3, color:COLOR.BLUE, type:BOXTYPE.JELLY },
-      { x:3, y:4, color:COLOR.BLUE, type:BOXTYPE.JELLY },
-      { x:3, y:5, color:COLOR.BLUE, type:BOXTYPE.JELLY },
-      { x:4, y:2, color:COLOR.RED,  type:BOXTYPE.JELLY },
-      { x:4, y:3, color:COLOR.RED,  type:BOXTYPE.JELLY },
-      { x:4, y:4, color:COLOR.RED,  type:BOXTYPE.JELLY },
-      { x:4, y:5, color:COLOR.RED,  type:BOXTYPE.JELLY }
-    ],
-    rowHints: [
-      [],
-      [ {num:1,color:COLOR.BLUE} ],
-      [ {num:1,color:COLOR.BLUE}, {num:2,color:COLOR.RED} ],
-      [ {num:1,color:COLOR.BLUE}, {num:1,color:COLOR.RED} ],
-      [ {num:1,color:COLOR.BLUE}, {num:1,color:COLOR.RED} ]
-    ],
-    colHints: [
-      [ {num:1,color:COLOR.BLUE}, {num:1,color:COLOR.RED} ],
-      [ {num:1,color:COLOR.BLUE} ],
-      [ {num:1,color:COLOR.RED} ],
-      [ {num:1,color:COLOR.BLUE}, {num:1,color:COLOR.RED} ],
-      [ {num:1,color:COLOR.BLUE}, {num:1,color:COLOR.RED} ]
-    ]
-  },
-  { // 关卡四：5x5 木箱+果冻混合
+  { // 关卡三：5x5 木箱+果冻混合
     n: 5,
     player: { x:1, y:3 },
     boxes: [
@@ -190,6 +172,34 @@ const LEVELS = [
       [ {num:2,color:COLOR.BLUE}, {num:1,color:COLOR.RED} ],
       [ {num:2,color:COLOR.BLUE}, {num:2,color:COLOR.RED} ],
       []
+    ]
+  },
+  { // 关卡四：5x5 融合教学（全果冻）
+    n: 5,
+    player: { x:3, y:1 },
+    boxes: [
+      { x:3, y:2, color:COLOR.BLUE, type:BOXTYPE.JELLY },
+      { x:3, y:3, color:COLOR.BLUE, type:BOXTYPE.JELLY },
+      { x:3, y:4, color:COLOR.BLUE, type:BOXTYPE.JELLY },
+      { x:3, y:5, color:COLOR.BLUE, type:BOXTYPE.JELLY },
+      { x:4, y:2, color:COLOR.RED,  type:BOXTYPE.JELLY },
+      { x:4, y:3, color:COLOR.RED,  type:BOXTYPE.JELLY },
+      { x:4, y:4, color:COLOR.RED,  type:BOXTYPE.JELLY },
+      { x:4, y:5, color:COLOR.RED,  type:BOXTYPE.JELLY }
+    ],
+    rowHints: [
+      [],
+      [ {num:1,color:COLOR.BLUE} ],
+      [ {num:1,color:COLOR.BLUE}, {num:2,color:COLOR.RED} ],
+      [ {num:1,color:COLOR.BLUE}, {num:1,color:COLOR.RED} ],
+      [ {num:1,color:COLOR.BLUE}, {num:1,color:COLOR.RED} ]
+    ],
+    colHints: [
+      [ {num:1,color:COLOR.BLUE}, {num:1,color:COLOR.RED} ],
+      [ {num:1,color:COLOR.BLUE} ],
+      [ {num:1,color:COLOR.RED} ],
+      [ {num:1,color:COLOR.BLUE}, {num:1,color:COLOR.RED} ],
+      [ {num:1,color:COLOR.BLUE}, {num:1,color:COLOR.RED} ]
     ]
   },
   { // 关卡五：5x5 混合进阶
@@ -245,6 +255,7 @@ const Audio = {
       this.buffers.move  = createToneBuffer(this.ctx, 300, 0.05, 0.15);
       this.buffers.push  = createToneBuffer(this.ctx, 200, 0.08, 0.25);
       this.buffers.merge = createToneBuffer(this.ctx, 880, 0.15, 0.30);
+      this.buffers.win   = createArpBuffer(this.ctx, [523.25, 659.25, 783.99, 1046.5], 0.11, 0.28);
     } catch(e) { this.ctx = null; }
   },
   resume(){ if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume(); },
@@ -260,6 +271,22 @@ const Audio = {
   setVolume(v){ settings.volume = v; if (this.gain) this.gain.gain.value = settings.soundOn ? v/100 : 0; },
   setSoundOn(on){ settings.soundOn = on; if (this.gain) this.gain.gain.value = on ? settings.volume/100 : 0; }
 };
+/* 第二十章 20.2.1：胜利音效（上行琶音 C-E-G-C） */
+function createArpBuffer(ctx, freqs, stepDur, volume){
+  const sampleRate = ctx.sampleRate;
+  const stepCount = Math.floor(sampleRate * stepDur);
+  const buffer = ctx.createBuffer(1, stepCount * freqs.length, sampleRate);
+  const data = buffer.getChannelData(0);
+  freqs.forEach((f, k) => {
+    const base = k * stepCount;
+    for (let i = 0; i < stepCount; i++) {
+      const env = 1 - (i / stepCount);
+      data[base + i] = Math.sin(2 * Math.PI * f * i / sampleRate) * volume * env;
+    }
+  });
+  return buffer;
+}
+
 function createToneBuffer(ctx, freq, duration, volume){
   const sampleRate = ctx.sampleRate;
   const sampleCount = Math.floor(sampleRate * duration);
@@ -370,6 +397,55 @@ function generateAllTextures(scene) {
 /* =========================================================================
  * 通用按钮工厂
  * ========================================================================= */
+/* =========================================================================
+ * 第十八章 18.2：UI 命中区统一工具
+ * Phaser 的 setInteractive() 默认用物体视觉宽高作判定，边缘像素点不准、
+ * origin 非 0.5 时判定区还会整体偏移。这里统一按「视觉尺寸 + 外扩 padding」
+ * 显式构造 Rectangle 命中区，并统一切换光标。
+ * ========================================================================= */
+
+/* 18.2 命中区：padding 可为数字，或 {x, y} 分别指定横纵外扩像素。
+
+   ⚠ 关键事实（踩过坑）：Phaser 的命中矩形坐标系原点是「物体的左上角」，
+   不是中心、也不需要按 origin 再扣一半尺寸 —— 默认 setInteractive() 用的
+   就是 Rectangle(0,0,width,height) 且能与视觉对齐。早年版本在这里多扣了
+   origin*size，导致命中区整体左上偏移：按钮右侧/下侧被切掉、左侧/上侧溢出，
+   间距小的按钮列表还会互相吞掉对方中心（点「查看棋盘」实际触发「返回主菜单」）。
+   正确写法永远是 (-pad, -pad, w+2pad, h+2pad)。
+*/
+function applyClickArea(obj, padding, w, h){
+  const padX = (padding && typeof padding === 'object')
+    ? (padding.x != null ? padding.x : UI_HIT_PADDING) : (padding != null ? padding : UI_HIT_PADDING);
+  const padY = (padding && typeof padding === 'object')
+    ? (padding.y != null ? padding.y : UI_HIT_PADDING) : (padding != null ? padding : UI_HIT_PADDING);
+  const pw = (w != null ? w : obj.width);
+  const ph = (h != null ? h : obj.height);
+  obj.setInteractive(
+    new Phaser.Geom.Rectangle(-padX, -padY, pw + padX*2, ph + padY*2),
+    Phaser.Geom.Rectangle.Contains
+  );
+  return obj;
+}
+
+/* 悬停切手型，离开还原 */
+function applyCursor(scene, obj){
+  obj.on('pointerover', () => scene.input.setDefaultCursor('pointer'));
+  obj.on('pointerout',  () => scene.input.setDefaultCursor('default'));
+  return obj;
+}
+
+/* 统一入口： button 可以是 Container 或 Text；padding 为四周外扩像素 */
+function makeButtonClickable(scene, button, padding, callback){
+  padding = (padding != null ? padding : 15);
+  applyClickArea(button, padding);
+  if (callback) button.on('pointerdown', callback);
+  applyCursor(scene, button);
+  return button;
+}
+
+/* 命中区默认外扩像素（18.2） */
+const UI_HIT_PADDING = 15;
+
 function makeButton(scene, x, y, w, h, label, onClick, opts) {
   opts = opts || {};
   const c = scene.add.container(x, y).setDepth(opts.depth != null ? opts.depth : DEPTH.ui);
@@ -381,10 +457,12 @@ function makeButton(scene, x, y, w, h, label, onClick, opts) {
   }).setOrigin(0.5);
   c.add([bg, t]);
   c.setSize(w, h);
-  c.setInteractive(new Phaser.Geom.Rectangle(-w/2, -h/2, w, h), Phaser.Geom.Rectangle.Contains);
+  // 18.2：外扩命中区；垂直堆叠的列表用较小的 padY，避免相邻按钮互相抢点击
+  applyClickArea(c, { x: UI_HIT_PADDING, y: opts.padY != null ? opts.padY : UI_HIT_PADDING }, w, h);
   c.on('pointerover', () => bg.setFillStyle(hexNum(PANEL_FILL2), 1));
   c.on('pointerout',  () => bg.setFillStyle(hexNum(PANEL_FILL), opts.fillAlpha != null ? opts.fillAlpha : 0.96));
   c.on('pointerdown', () => { Audio.ensure(); onClick(); });
+  applyCursor(scene, c);
   c.bgRef = bg; c.txtRef = t;
   return c;
 }
@@ -430,21 +508,21 @@ class MenuScene extends Phaser.Scene {
 
     const startBtn = makeButton(this, cx, by, bw, bh, '开始游戏', () => {
       this.scene.start('GameScene', { levelIndex: 0 });
-    }, { fontSize: 24, bold: true });
+    }, { fontSize: 24, bold: true, padY: 8 });
     this.uiObjs.push(startBtn);
     by += bh + gap;
 
     if (sessionProgress > 0) {
       const contBtn = makeButton(this, cx, by, bw, bh, '继续游戏（第 ' + (sessionProgress+1) + ' 关）', () => {
         this.scene.start('GameScene', { levelIndex: sessionProgress });
-      });
+      }, { padY: 8 });
       this.uiObjs.push(contBtn);
       by += bh + gap;
     }
 
     const setBtn = makeButton(this, cx, by, bw, bh, '设置', () => {
       openSettings(this, false);
-    });
+    }, { padY: 8 });
     this.uiObjs.push(setBtn);
     by += bh + gap;
 
@@ -476,6 +554,11 @@ class GameScene extends Phaser.Scene {
     this.isMoving = false;
     this.settingsOpen = false;
     this.victoryOpen = false;
+    this.victoryPending = false;      // 20.2 胜利展示阶段
+    this.hasMergedThisLevel = false;  // 19.2 本关是否已发生融合
+    this.questionMark = null;         // 19.2 问号按钮（仅第三关）
+    this._dialogObjs  = null;         // 19.2 对话框对象集合
+    this._dialogBody  = null;         // 19.2 对话框正文，用于融合后实时改写
 
     this.worldLayer = this.add.container(0, 0); // 棋盘/箱子/提示/玩家均在此层
     this.uiLayer = this.add.container(0, 0);      // 按钮/关卡标签/教学/WASD（屏幕锚定）
@@ -530,6 +613,10 @@ class GameScene extends Phaser.Scene {
 
     this.isMoving = false;
     this.victoryOpen = false;
+    this.victoryPending = false;
+    this.hasMergedThisLevel = false;   // 19.2.2
+    this.closeDialog();                // 19.2.2 切关即关闭引导对话框
+    this.clearVictoryShow();           // 20.2.1 清理展示阶段的网格高亮与脉冲
   }
 
   resetLevel(){
@@ -746,38 +833,43 @@ class GameScene extends Phaser.Scene {
     for (let i = 0; i < n; i++) {
       const y = i + 1;
       const cy = this.cellCenterY(y);
-      const numX = this.offsetX - cell*0.35;
+      const numX = this.offsetX - cell*0.30;
       const info = this.classifyHint(this.level.rowHints[i]);
       const obj = { type: info.type, color: info.color, texts: [], checks: [], seps: [] };
+      // 18.1：单/双提示共用同一字号，杜绝一大一小
       if (info.type === 'single') {
         // 数字：亮度恒定 alpha = 0.85（15.3.3）
         const num = this.add.text(numX, cy, String(this.level.rowHints[i][0].num), {
-          fontFamily: FONT, fontSize: (cell*0.50)+'px', color: colorHexOf(info.color), fontStyle:'bold'
+          fontFamily: FONT, fontSize: (cell*HINT_NUM_SIZE)+'px', color: colorHexOf(info.color), fontStyle:'bold'
         }).setOrigin(0.5).setDepth(DEPTH.ui).setAlpha(0.85);
-        // 对勾：数字正左方，间距 cell*0.10，初始 alpha = 0（15.3.1 / 15.2）
+        // 对勾：紧贴数字正左方，初始 alpha = 0（15.3.1 / 15.2）
         const chk = this.add.text(0, 0, '✓', {
-          fontFamily: FONT, fontSize: (cell*0.40)+'px', color: colorHexOf(info.color)
+          fontFamily: FONT, fontSize: (cell*HINT_CHK_SIZE)+'px', color: colorHexOf(info.color)
         }).setOrigin(0.5).setDepth(DEPTH.ui).setAlpha(0);
-        chk.setPosition(numX - num.width/2 - cell*0.10 - chk.width/2, cy);
+        chk.setPosition(numX - num.width/2 - cell*HINT_CHK_GAP - chk.width/2, cy);
         chk._target = 0;
         this.worldLayer.add([num, chk]);
         obj.numText = num; obj.chkText = chk;
         obj.texts.push(num, chk); obj.checks.push(chk);
       } else if (info.type === 'double') {
-        const redNum  = this.add.text(numX, cy - cell*0.26, String(this.sumColor(this.level.rowHints[i], COLOR.RED)), {
-          fontFamily: FONT, fontSize: (cell*0.35)+'px', color: PALETTE.blockRed, fontStyle:'bold'
+        const redNum  = this.add.text(numX, 0, String(this.sumColor(this.level.rowHints[i], COLOR.RED)), {
+          fontFamily: FONT, fontSize: (cell*HINT_NUM_SIZE)+'px', color: PALETTE.blockRed, fontStyle:'bold'
         }).setOrigin(0.5).setDepth(DEPTH.ui).setAlpha(0.85);
-        const blueNum = this.add.text(numX, cy + cell*0.26, String(this.sumColor(this.level.rowHints[i], COLOR.BLUE)), {
-          fontFamily: FONT, fontSize: (cell*0.35)+'px', color: PALETTE.blockBlue, fontStyle:'bold'
+        const blueNum = this.add.text(numX, 0, String(this.sumColor(this.level.rowHints[i], COLOR.BLUE)), {
+          fontFamily: FONT, fontSize: (cell*HINT_NUM_SIZE)+'px', color: PALETTE.blockBlue, fontStyle:'bold'
         }).setOrigin(0.5).setDepth(DEPTH.ui).setAlpha(0.85);
+        // 18.1.3：上下堆叠，两数字之间净间距 = cell*0.05
+        const offRow = (Math.max(redNum.height, blueNum.height) + cell*HINT_NUM_GAP) / 2;
+        redNum.setY(cy - offRow);
+        blueNum.setY(cy + offRow);
         const redChk  = this.add.text(0, 0, '✓', {
-          fontFamily: FONT, fontSize: (cell*0.30)+'px', color: PALETTE.blockRed
+          fontFamily: FONT, fontSize: (cell*HINT_CHK_SIZE)+'px', color: PALETTE.blockRed
         }).setOrigin(0.5).setDepth(DEPTH.ui).setAlpha(0);
         const blueChk = this.add.text(0, 0, '✓', {
-          fontFamily: FONT, fontSize: (cell*0.30)+'px', color: PALETTE.blockBlue
+          fontFamily: FONT, fontSize: (cell*HINT_CHK_SIZE)+'px', color: PALETTE.blockBlue
         }).setOrigin(0.5).setDepth(DEPTH.ui).setAlpha(0);
-        redChk.setPosition(numX - redNum.width/2 - cell*0.10 - redChk.width/2, cy - cell*0.26);
-        blueChk.setPosition(numX - blueNum.width/2 - cell*0.10 - blueChk.width/2, cy + cell*0.26);
+        redChk.setPosition(numX - redNum.width/2 - cell*HINT_CHK_GAP - redChk.width/2, redNum.y);
+        blueChk.setPosition(numX - blueNum.width/2 - cell*HINT_CHK_GAP - blueChk.width/2, blueNum.y);
         redChk._target = 0; blueChk._target = 0;
         // 数字间细横线分隔（15.4.2 新增）：宽度 = 数字渲染宽度，1px，位于两数字垂直中点
         const sepW = Math.max(redNum.width, blueNum.width);
@@ -787,6 +879,7 @@ class GameScene extends Phaser.Scene {
         obj.texts.push(redNum, blueNum, redChk, blueChk);
         obj.checks.push(redChk, blueChk); obj.seps.push(sep);
       }
+      obj.baseX = numX;   // 18.1 自适应靠拢基准
       this.hintRows.push(obj);
     }
 
@@ -794,39 +887,43 @@ class GameScene extends Phaser.Scene {
     for (let i = 0; i < n; i++) {
       const x = i + 1;
       const cx = this.cellCenterX(x);
-      const numY = this.offsetY - cell*0.35;
+      const numY = this.offsetY - cell*0.30;
       const info = this.classifyHint(this.level.colHints[i]);
       const obj = { type: info.type, color: info.color, texts: [], checks: [], seps: [] };
+      // 18.1：单/双提示共用同一字号，杜绝一大一小
       if (info.type === 'single') {
         // 数字：亮度恒定 alpha = 0.85（15.3.3）
         const num = this.add.text(cx, numY, String(this.level.colHints[i][0].num), {
-          fontFamily: FONT, fontSize: (cell*0.50)+'px', color: colorHexOf(info.color), fontStyle:'bold'
+          fontFamily: FONT, fontSize: (cell*HINT_NUM_SIZE)+'px', color: colorHexOf(info.color), fontStyle:'bold'
         }).setOrigin(0.5).setDepth(DEPTH.ui).setAlpha(0.85);
-        // 对勾：数字正上方，间距 cell*0.08，初始 alpha = 0（15.3.1 / 15.2）
+        // 对勾：紧贴数字正上方，初始 alpha = 0（15.3.1 / 15.2）
         const chk = this.add.text(0, 0, '✓', {
-          fontFamily: FONT, fontSize: (cell*0.40)+'px', color: colorHexOf(info.color)
+          fontFamily: FONT, fontSize: (cell*HINT_CHK_SIZE)+'px', color: colorHexOf(info.color)
         }).setOrigin(0.5).setDepth(DEPTH.ui).setAlpha(0);
-        chk.setPosition(cx, numY - num.height/2 - cell*0.08 - chk.height/2);
+        chk.setPosition(cx, numY - num.height/2 - cell*HINT_CHK_GAP - chk.height/2);
         chk._target = 0;
         this.worldLayer.add([num, chk]);
         obj.numText = num; obj.chkText = chk;
         obj.texts.push(num, chk); obj.checks.push(chk);
       } else if (info.type === 'double') {
-        const blueNum = this.add.text(cx - cell*0.22, numY, String(this.sumColor(this.level.colHints[i], COLOR.BLUE)), {
-          fontFamily: FONT, fontSize: (cell*0.35)+'px', color: PALETTE.blockBlue, fontStyle:'bold'
+        const blueNum = this.add.text(0, numY, String(this.sumColor(this.level.colHints[i], COLOR.BLUE)), {
+          fontFamily: FONT, fontSize: (cell*HINT_NUM_SIZE)+'px', color: PALETTE.blockBlue, fontStyle:'bold'
         }).setOrigin(0.5).setDepth(DEPTH.ui).setAlpha(0.85);
-        const redNum  = this.add.text(cx + cell*0.22, numY, String(this.sumColor(this.level.colHints[i], COLOR.RED)), {
-          fontFamily: FONT, fontSize: (cell*0.35)+'px', color: PALETTE.blockRed, fontStyle:'bold'
+        const redNum  = this.add.text(0, numY, String(this.sumColor(this.level.colHints[i], COLOR.RED)), {
+          fontFamily: FONT, fontSize: (cell*HINT_NUM_SIZE)+'px', color: PALETTE.blockRed, fontStyle:'bold'
         }).setOrigin(0.5).setDepth(DEPTH.ui).setAlpha(0.85);
+        // 18.1.3：左右并排，两数字之间净间距 = cell*0.05（分隔线严格落在正中）
+        blueNum.setX(cx - (blueNum.width + cell*HINT_NUM_GAP) / 2);
+        redNum.setX(cx + (redNum.width + cell*HINT_NUM_GAP) / 2);
         const blueChk = this.add.text(0, 0, '✓', {
-          fontFamily: FONT, fontSize: (cell*0.30)+'px', color: PALETTE.blockBlue
+          fontFamily: FONT, fontSize: (cell*HINT_CHK_SIZE)+'px', color: PALETTE.blockBlue
         }).setOrigin(0.5).setDepth(DEPTH.ui).setAlpha(0);
         const redChk  = this.add.text(0, 0, '✓', {
-          fontFamily: FONT, fontSize: (cell*0.30)+'px', color: PALETTE.blockRed
+          fontFamily: FONT, fontSize: (cell*HINT_CHK_SIZE)+'px', color: PALETTE.blockRed
         }).setOrigin(0.5).setDepth(DEPTH.ui).setAlpha(0);
-        // 对勾在对应数字正上方，间距 cell*0.08
-        blueChk.setPosition(cx - cell*0.22, numY - blueNum.height/2 - cell*0.08 - blueChk.height/2);
-        redChk.setPosition(cx + cell*0.22, numY - redNum.height/2 - cell*0.08 - redChk.height/2);
+        // 对勾紧贴各自数字正上方
+        blueChk.setPosition(blueNum.x, numY - blueNum.height/2 - cell*HINT_CHK_GAP - blueChk.height/2);
+        redChk.setPosition(redNum.x, numY - redNum.height/2 - cell*HINT_CHK_GAP - redChk.height/2);
         blueChk._target = 0; redChk._target = 0;
         // 中间分隔竖线（保持 8.3.1）：gridLine 色，1px，高度与数字一致
         const sep = this.add.graphics().setDepth(DEPTH.ui);
@@ -839,7 +936,65 @@ class GameScene extends Phaser.Scene {
         obj.texts.push(blueNum, redNum, blueChk, redChk);
         obj.checks.push(blueChk, redChk); obj.seps.push(sep);
       }
+      obj.baseY = numY;   // 18.1 自适应靠拢基准
       this.hintCols.push(obj);
+    }
+
+    // 18.1：字号统一后内容变宽，统一把提示块贴合 hint 区居中，保证不溢出
+    this.alignRowHints();
+    this.alignColHints();
+  }
+
+  /* 行提示：整块（对勾 + 数字）在 hintLeftWidth 内水平居中，各行共用同一 numX */
+  alignRowHints(){
+    const pad = this.hintPad;
+    const zoneLeft = this.offsetX - pad;
+    const zoneCX   = this.offsetX - pad/2;
+    let maxL = 0, maxR = 0;
+    for (const obj of this.hintRows) {
+      if (!obj.baseX || obj.texts.length === 0) continue;
+      for (const t of obj.texts) {
+        const bb = t.getBounds();
+        maxL = Math.max(maxL, obj.baseX - bb.left);
+        maxR = Math.max(maxR, bb.right - obj.baseX);
+      }
+    }
+    const total = maxL + maxR;
+    // 目标：块左边界落在 zoneCX - total/2；块左边界 = targetX - maxL
+    let targetX = zoneCX - total/2 + maxL;
+    const minX = zoneLeft + maxL + this.cellSize*0.02;   // 下限：不越出 hint 区左边界
+    if (targetX < minX) targetX = minX;
+    for (const obj of this.hintRows) {
+      if (!obj.baseX || obj.texts.length === 0) continue;
+      const dx = targetX - obj.baseX;
+      obj.texts.forEach(t => t.x += dx);
+      obj.seps.forEach(sp => sp.x += dx);
+    }
+  }
+
+  /* 列提示：整块在 hintTopHeight 内垂直居中，各列共用同一 numY */
+  alignColHints(){
+    const pad = this.hintPad;
+    const zoneTop = this.offsetY - pad;
+    const zoneCY  = this.offsetY - pad/2;
+    let maxT = 0, maxB = 0;
+    for (const obj of this.hintCols) {
+      if (!obj.baseY || obj.texts.length === 0) continue;
+      for (const t of obj.texts) {
+        const bb = t.getBounds();
+        maxT = Math.max(maxT, obj.baseY - bb.top);
+        maxB = Math.max(maxB, bb.bottom - obj.baseY);
+      }
+    }
+    const total = maxT + maxB;
+    let targetY = zoneCY - total/2 + maxT;
+    const minY = zoneTop + maxT + this.cellSize*0.02;    // 下限：不越出 hint 区上边界
+    if (targetY < minY) targetY = minY;
+    for (const obj of this.hintCols) {
+      if (!obj.baseY || obj.texts.length === 0) continue;
+      const dy = targetY - obj.baseY;
+      obj.texts.forEach(t => t.y += dy);
+      obj.seps.forEach(sp => { if (sp.type === 'Rectangle') sp.y += dy; });
     }
   }
 
@@ -952,7 +1107,8 @@ class GameScene extends Phaser.Scene {
 
   /* ---------- 移动与动画（4.1 / 4.3） ---------- */
   tryMove(dx, dy){
-    if (this.isMoving || this.settingsOpen || this.victoryOpen) return;
+    // 20.2：胜利展示阶段同样锁定移动（UI 仍可用）
+    if (this.isMoving || this.settingsOpen || this.victoryOpen || this.victoryPending) return;
     const px = this.player.x, py = this.player.y;
     const tx = px + dx, ty = py + dy;
     if (tx < 1 || tx > this.n || ty < 1 || ty > this.n) return; // 越界，忽略（is_moving 保持 false）
@@ -967,6 +1123,9 @@ class GameScene extends Phaser.Scene {
         if (boxA.type === BOXTYPE.JELLY && boxB.type === BOXTYPE.JELLY
             && isOpposite(boxA.color, boxB.color)) {
           this.isMoving = true;
+          // 19.2.2：本关已发生融合，并即时刷新引导对话框
+          this.hasMergedThisLevel = true;
+          this.updateDialogAfterMerge();
           // 数据：移除 A、B，新增紫色于前方格
           this.removeBoxData(boxA); this.removeBoxData(boxB);
           const nb = this.addBoxData(fx, fy, COLOR.PURPLE, BOXTYPE.JELLY);
@@ -1042,13 +1201,71 @@ class GameScene extends Phaser.Scene {
     this.updateFuseGlow();
     this.updateHints();
     this.isMoving = false;
-    if (this.verifyAll()) this.showVictory();
+    // 20.2：先展示棋盘 1.5 秒，再弹胜利覆盖层
+    if (this.verifyAll()) this.beginVictoryShow();
+  }
+
+  /* ---------- 第二十章 20.2.1：胜利展示阶段 ---------- */
+  beginVictoryShow(){
+    if (this.victoryPending || this.victoryOpen) return;
+    this.victoryPending = true;
+
+    // ① 网格线高亮（在网格层之上叠一层 boardEdge 色细线，渐显）
+    if (!this._victoryGridGlow) {
+      const n = this.n, cell = this.cellSize, ox = this.offsetX, oy = this.offsetY;
+      const g = this.add.graphics().setDepth(DEPTH.grid + 1).setAlpha(0);
+      g.lineStyle(GEOM.gridLineWidth, hexNum(PALETTE.boardEdge), 1);
+      for (let i = 0; i <= n; i++) {
+        g.lineBetween(ox + i*cell, oy, ox + i*cell, oy + n*cell);
+        g.lineBetween(ox, oy + i*cell, ox + n*cell, oy + i*cell);
+      }
+      this.worldLayer.add(g);
+      this._victoryGridGlow = g;
+      this.tweens.add({ targets: g, alpha: 0.95, duration: 320, ease: 'Sine.Out' });
+    }
+
+    // ② 箱子高亮脉冲 1.0 -> 1.05 -> 1.0 循环
+    this._victoryPulses = [];
+    for (const b of this.boxData) {
+      if (!b.view || !b.view.container) continue;
+      if (b.view.pulse) { b.view.pulse.stop(); b.view.pulse = null; }
+      const tw = this.tweens.add({
+        targets: b.view.container, scale: 1.05,
+        duration: 420, yoyo: true, repeat: -1, ease: 'Sine.InOut'
+      });
+      this._victoryPulses.push(tw);
+    }
+
+    // ③ 胜利音效
+    Audio.play('win');
+
+    // ④ 1.5s 后弹出覆盖层
+    this._victoryTimer = this.time.delayedCall(VICTORY_DELAY, () => {
+      this._victoryTimer = null;
+      this.victoryPending = false;
+      this.showVictory();
+    });
+  }
+
+  /* 清理胜利展示阶段的视觉反馈 */
+  clearVictoryShow(){
+    if (this._victoryTimer) { this._victoryTimer.remove(false); this._victoryTimer = null; }
+    this.victoryPending = false;
+    if (this._victoryGridGlow) { this._victoryGridGlow.destroy(); this._victoryGridGlow = null; }
+    if (this._victoryPulses) {
+      this._victoryPulses.forEach(t => t.stop());
+      this._victoryPulses = null;
+    }
+    for (const b of this.boxData) {
+      if (b.view && b.view.container) b.view.container.setScale(1);
+    }
   }
 
   /* ---------- 屏幕锚定 UI（按钮 / 关卡标签 / 教学） ---------- */
   buildScreenUI(){
     // 清空旧 UI
     this.uiLayer.removeAll(true);
+    this.questionMark = null;   // 旧问号已被 removeAll 销毁
 
     const W = this.scale.width, H = this.scale.height;
     const cell = this.cellSize;
@@ -1072,6 +1289,9 @@ class GameScene extends Phaser.Scene {
     // 第十七章：WASD 教学块与关卡文字提示，位置全部由 computeLayout() 计算
     if (this.showWASDHint) this.buildTeaching(W);
     if (this.promptText && this.promptY != null) this.buildPrompt(W);
+
+    // 第十九章 19.2：仅新第三关（索引 2）显示左侧问号引导
+    this.buildQuestionMark();
   }
 
   /* 关卡文字提示（17.2.3）：setOrigin(0.5, 0)，水平居中于屏幕，Y 由布局动态给出 */
@@ -1101,63 +1321,175 @@ class GameScene extends Phaser.Scene {
     mk(s,  s, 'D', '→');
   }
 
+  /* =======================================================================
+   * 第十九章 19.2：问号引导按钮 + 引导对话框
+   * 位置随 computeLayout() 结果走，不写死坐标；命中区走 18.2 的统一工具。
+   * ===================================================================== */
+
+  /* 19.2.1 黄色问号：棋盘左侧空白区，垂直居中于棋盘 */
+  buildQuestionMark(){
+    if (this.current_level_index !== 2) return;   // 仅第三关出现
+    const W = this.scale.width;
+    const cell = this.cellSize;
+    const size = Math.round(cell * 0.8);          // 19.2.1 字号 = cellSize * 0.8
+    const half = Math.round(size * 0.62);         // 半透明深色圆底半径
+
+    // x = offsetX - hintLeftWidth - 60（hintLeftWidth == this.hintPad），再夹进屏幕
+    let x = this.offsetX - this.hintPad - 60;
+    if (x - half < 12) x = 12 + half;
+    x = Phaser.Math.Clamp(x, 12 + half, W - half - 12);
+    const y = Math.round(this.offsetY + this.n * cell / 2);   // 与棋盘中心垂直对齐
+
+    const q = this.add.container(x, y).setDepth(DEPTH.ui);
+    q.add(this.add.circle(0, 0, half, hexNum(INK), 0.55)
+      .setStrokeStyle(2, hexNum(PALETTE.player), 0.8));
+    q.add(this.add.text(0, 0, '?', {
+      fontFamily: FONT, fontSize: size + 'px', color: PALETTE.player, fontStyle: 'bold'
+    }).setOrigin(0.5));
+    q.setSize(size, size);
+    this.uiLayer.add(q);
+
+    // 18.2：外扩命中区 + 手型，边缘 15px 内也能点中
+    makeButtonClickable(this, q, UI_HIT_PADDING, () => this.openDialog());
+    q.on('pointerover', () => q.setScale(1.12));
+    q.on('pointerout',  () => q.setScale(1));
+    this.questionMark = q;
+  }
+
+  /* 对话框文案：本关发生过融合后改为融合线索 */
+  dialogText(){
+    return this.hasMergedThisLevel ? '红+蓝=紫！' : '这两种箱子似乎不一样？';
+  }
+
+  /* 19.2.2 打开对话框：半透明深色底 + 白字，位于问号旁且不遮挡棋盘核心区 */
+  openDialog(){
+    if (this.settingsOpen || this.victoryOpen) return;
+    this.closeDialog();
+
+    const W = this.scale.width, H = this.scale.height;
+    const dw = 300, pad = 20;
+
+    const body = this.add.text(0, 0, this.dialogText(), {
+      fontFamily: FONT, fontSize: '19px', color: WHITE,
+      wordWrap: { width: dw - pad*2 }, align: 'center'
+    }).setOrigin(0.5);
+    const dh = Math.max(100, body.height + pad*2 + 30);
+
+    // 点击对话框以外区域即关闭（透明阻挡层，18.2 同款手法）
+    const blocker = this.add.rectangle(W/2, H/2, W, H, 0xffffff, 0.001)
+      .setDepth(DEPTH.ui).setInteractive();
+    blocker.on('pointerdown', () => this.closeDialog());
+
+    const layer = this.add.container(0, 0).setDepth(DEPTH.overlay);
+    layer.add(this.add.rectangle(0, 0, dw, dh, hexNum(INK), 0.82)
+      .setStrokeStyle(2, hexNum(PALETTE.boardEdge), 0.9));
+    layer.add(body);
+
+    const close = this.add.text(dw/2 - 16, -dh/2 + 14, '×', {
+      fontFamily: FONT, fontSize: '24px', color: UI_TEXT
+    }).setOrigin(0.5);
+    makeButtonClickable(this, close, 15, () => this.closeDialog());
+    layer.add(close);
+
+    // 定位：贴着问号放下方，放不下改上方；横向限制在棋盘左侧提示区内
+    const qx = this.questionMark ? this.questionMark.x : W/2;
+    const qy = this.questionMark ? this.questionMark.y : H/2;
+    let y = qy + 44 + dh/2;
+    if (y + dh/2 > H - 12) y = qy - 44 - dh/2;
+    y = Phaser.Math.Clamp(y, dh/2 + 12, H - dh/2 - 12);
+    let x = qx;
+    if (x + dw/2 > this.offsetX - 12) x = this.offsetX - 12 - dw/2;
+    x = Phaser.Math.Clamp(x, dw/2 + 12, W - dw/2 - 12);
+    layer.setPosition(Math.round(x), Math.round(y));
+
+    this._dialogObjs = [blocker, layer];
+    this._dialogBody = body;
+  }
+
+  closeDialog(){
+    if (this._dialogObjs) { this._dialogObjs.forEach(o => o.destroy()); this._dialogObjs = null; }
+    this._dialogBody = null;
+  }
+
+  /* 19.2.2：融合瞬间调用；面板开着则实时改写并闪烁一次 */
+  updateDialogAfterMerge(){
+    this.hasMergedThisLevel = true;
+    const body = this._dialogBody;
+    if (!body || !body.scene) return;             // 面板没开，下次打开自然是新文案
+    body.setText(this.dialogText());
+    this.tweens.killTweensOf(body);
+    body.setAlpha(1);
+    this.tweens.add({ targets: body, alpha: 0.2, duration: 110, yoyo: true, repeat: 3 });
+  }
+
   /* ---------- 胜利覆盖层（5.4） ---------- */
   showVictory(){
     this.victoryOpen = true;
     const W = this.scale.width, H = this.scale.height;
-    const objs = [];
-    const dim = this.add.rectangle(W/2, H/2, W, H, 0x000000, 0.6).setDepth(DEPTH.overlay);
-    const panel = this.add.rectangle(W/2, H/2, 360, 260, hexNum(PANEL_FILL), 0.98)
-      .setStrokeStyle(2, hexNum(PALETTE.boardEdge), 1).setDepth(DEPTH.overlay);
-    const title = this.add.text(W/2, H/2 - 86, '胜利', {
+
+    // 20.2.3：整个覆盖层装进容器，便于「查看棋盘」整体隐藏/恢复
+    const layer = this.add.container(0, 0).setDepth(DEPTH.overlay);
+
+    // 20.2.2：黑底 alpha 降至 0.4，仍能看见背后的棋盘成果
+    const dim = this.add.rectangle(W/2, H/2, W, H, 0x000000, 0.4);
+    layer.add(dim);
+
+    // 20.2.4：标题上移至屏幕 20% 处，棋盘中心完全裸露
+    const title = this.add.text(W/2, H*0.20, '胜利', {
       fontFamily: FONT, fontSize: '46px', color: PALETTE.player, fontStyle:'bold'
-    }).setOrigin(0.5).setDepth(DEPTH.overlay);
-    objs.push(dim, panel, title);
+    }).setOrigin(0.5);
+    layer.add(title);
 
     const isLast = this.current_level_index >= LEVELS.length - 1;
     const bw = 240, bh = 46, gap = 14;
-    let by = H/2 - 18;
-
+    const btns = [];
     if (!isLast) {
-      const next = makeButton(this, W/2, by, bw, bh, '下一关', () => {
+      btns.push(['下一关', true, () => {
         this.closeVictory();
         const ni = this.current_level_index + 1;
         sessionProgress = Math.max(sessionProgress, ni);
         this.loadLevel(ni);
-      }, { depth: DEPTH.overlay, fontSize: 22, bold: true });
-      objs.push(next); by += bh + gap;
-    } else {
-      const back = makeButton(this, W/2, by, bw, bh, '返回主菜单', () => {
-        this.closeVictory();
-        this.scene.start('MenuScene');
-      }, { depth: DEPTH.overlay, fontSize: 22 });
-      objs.push(back); by += bh + gap;
+      }]);
+    }
+    btns.push(['重新开始', false, () => { this.closeVictory(); this.loadLevel(this.current_level_index); }]);
+    btns.push(['查看棋盘', false, () => {
+      layer.setVisible(false);              // 20.2.3：隐藏覆盖层欣赏棋盘
+      if (this._victoryResume) this._victoryResume.setVisible(true);
+    }]);
+    btns.push(['返回主菜单', false, () => { this.closeVictory(); this.scene.start('MenuScene'); }]);
+
+    // 按钮组整体落在屏幕下方约 20% 区间，不压棋盘中心
+    const totalH = btns.length*bh + (btns.length - 1)*gap;
+    let by = H*0.82 - totalH + bh/2;
+    for (const b of btns) {
+      layer.add(makeButton(this, W/2, by, bw, bh, b[0], b[2],
+        { depth: DEPTH.overlay, fontSize: 22, bold: b[1], padY: 6 }));
+      by += bh + gap;
     }
 
-    const replay = makeButton(this, W/2, by, bw, bh, '重新开始', () => {
-      this.closeVictory();
-      this.loadLevel(this.current_level_index);
-    }, { depth: DEPTH.overlay });
-    objs.push(replay); by += bh + gap;
+    // 20.2.3：覆盖层隐藏时出现在右下角的「继续」小按钮
+    const resume = makeButton(this, W - 78, H - 34, 128, 44, '继续', () => {
+      layer.setVisible(true);
+      resume.setVisible(false);
+    }, { fontSize: 19 });
+    resume.setVisible(false);
 
-    if (!isLast) {
-      const back2 = makeButton(this, W/2, by, bw, bh, '返回主菜单', () => {
-        this.closeVictory();
-        this.scene.start('MenuScene');
-      }, { depth: DEPTH.overlay });
-      objs.push(back2); by += bh + gap;
-    }
-
-    this._victoryObjs = objs;
+    this._victoryLayer  = layer;
+    this._victoryResume = resume;
+    this._victoryObjs   = [layer, resume];
   }
+
   closeVictory(){
+    this.clearVictoryShow();
     if (this._victoryObjs) { this._victoryObjs.forEach(o => o.destroy()); this._victoryObjs = null; }
+    this._victoryLayer = null; this._victoryResume = null;
     this.victoryOpen = false;
   }
 
   /* ---------- 缩放 ---------- */
   onResize(){
     if (this.isMoving) return; // 移动中不做布局重建，避免跳动
+    this.closeDialog();        // 19.2：对话框坐标依赖布局，缩放即关闭
     this.computeLayout();
     this.clearWorld();
     this.rebuildWorld();
@@ -1234,9 +1566,15 @@ function openSettings(scene, fromGame){
     .setOrigin(0, 0.5).setDepth(DEPTH.overlay);
   // 透明热区（在手柄之下），让整条轨道区域都可点击
   const zone = scene.add.rectangle(controlStartX + controlWidth/2, rowVolumeY, controlWidth + 24, 36, 0xffffff, 0.001)
-    .setDepth(DEPTH.overlay).setInteractive();
+    .setDepth(DEPTH.overlay);
+  // 18.2：按左上角原点对称外扩（这里的坑见 applyClickArea 注释）
+  applyClickArea(zone, { x: UI_HIT_PADDING, y: 15 });
+  applyCursor(scene, zone);
   const handle = scene.add.circle(controlStartX + controlWidth*(settings.volume/100), rowVolumeY, 11, hexNum(PALETTE.player), 1)
-    .setDepth(DEPTH.overlay).setInteractive({ draggable: true });
+    .setDepth(DEPTH.overlay);
+  // 18.2：手柄半径仅 11px，外扩 11px 成 44x44 方形命中区后再允许拖拽
+  applyClickArea(handle, 11);
+  applyCursor(scene, handle);
 
   const setVol = (v) => {
     v = Math.max(0, Math.min(100, Math.round(v)));
@@ -1263,18 +1601,18 @@ function openSettings(scene, fromGame){
   const bw = 240, bh = 44, gap = 14;
   let by = panelY + 230;
   if (fromGame) {
-    const cont = makeButton(scene, W/2, by, bw, bh, '继续', () => closeSettings(scene), { depth: DEPTH.overlay });
+    const cont = makeButton(scene, W/2, by, bw, bh, '继续', () => closeSettings(scene), { depth: DEPTH.overlay, padY: 6 });
     objs.push(cont); by += bh + gap;
     const restart = makeButton(scene, W/2, by, bw, bh, '重新开始', () => {
       closeSettings(scene); scene.resetLevel();
-    }, { depth: DEPTH.overlay });
+    }, { depth: DEPTH.overlay, padY: 6 });
     objs.push(restart); by += bh + gap;
     const home = makeButton(scene, W/2, by, bw, bh, '返回主界面', () => {
       closeSettings(scene); scene.closeVictory(); scene.scene.start('MenuScene');
-    }, { depth: DEPTH.overlay });
+    }, { depth: DEPTH.overlay, padY: 6 });
     objs.push(home); by += bh + gap;
   } else {
-    const back = makeButton(scene, W/2, by, bw, bh, '返回', () => closeSettings(scene), { depth: DEPTH.overlay });
+    const back = makeButton(scene, W/2, by, bw, bh, '返回', () => closeSettings(scene), { depth: DEPTH.overlay, padY: 6 });
     objs.push(back); by += bh + gap;
   }
 
@@ -1289,27 +1627,85 @@ function closeSettings(scene){
 }
 
 /* =========================================================================
- * 启动
+ * 启动入口（由外部 loader 在 Phaser 就绪后调用）
  * ========================================================================= */
-const config = {
-  type: Phaser.AUTO,
-  parent: 'game',
-  backgroundColor: PALETTE.bg,
-  scale: {
-    mode: Phaser.Scale.RESIZE,
-    autoCenter: Phaser.Scale.CENTER_BOTH,
-    width: '100%',
-    height: '100%'
-  },
-  scene: [BootScene, MenuScene, GameScene]
-};
+function startGame(){
+  if (window.__GAME) return;
+  verifyPalette();                       // 控制台输出 PALETTE_OK
+  const cfg = {
+    type: Phaser.AUTO,
+    parent: 'game',
+    backgroundColor: PALETTE.bg,
+    scale: {
+      mode: Phaser.Scale.RESIZE,
+      autoCenter: Phaser.Scale.CENTER_BOTH,
+      width: '100%',
+      height: '100%'
+    },
+    scene: [BootScene, MenuScene, GameScene]
+  };
+  window.__GAME = new Phaser.Game(cfg);
+}
 
-window.addEventListener('load', () => {
-  // 校验色值（控制台输出 PALETTE_OK）
-  verifyPalette();
-  const game = new Phaser.Game(config);
-  window.__GAME = game;
-});
+startGame();
+</script>
+
+<script>
+/* =========================================================================
+ * 引擎加载器（多 CDN 兜底，避免单一 CDN 不可达导致白屏）
+ * 离线内联版中 Phaser 已随页面同步注入，此处直接启动。
+ * ========================================================================= */
+(function () {
+  var SOURCES = [
+    'https://cdn.jsdelivr.net/npm/phaser@3.80.1/dist/phaser.min.js',
+    'https://unpkg.com/phaser@3.80.1/dist/phaser.min.js',
+    'https://cdnjs.cloudflare.com/ajax/libs/phaser/3.80.1/phaser.min.js'
+  ];
+  var box = '<div style="max-width:600px;margin:14vh auto;padding:30px 34px;' +
+    'font-family:system-ui,\'Microsoft YaHei\',sans-serif;line-height:1.9;' +
+    'background:#1b2233;border:2px solid #ff4d6d;border-radius:12px">';
+
+  function fail(){
+    document.body.style.background = '#262c3a';
+    document.body.innerHTML = box +
+      '<div style="font-size:21px;font-weight:700;color:#ffe066;margin-bottom:10px">' +
+      '游戏引擎 Phaser 3 未能加载</div>' +
+      '<div style="font-size:15px;color:#c9d2e3">' +
+      '本页通过 CDN 引入 Phaser 3，当前网络无法访问 CDN，因此没有画面。<br>' +
+      '文件本身没有损坏，请按顺序排查：</div>' +
+      '<ol style="font-size:15px;color:#c9d2e3;margin:12px 0 0 20px;padding:0">' +
+      '<li>确认电脑已联网，按 <b>F5</b> 刷新；</li>' +
+      '<li>公司/校园网络可能拦截 CDN，换手机热点再刷新；</li>' +
+      '<li>仍不行的话，请打开同目录下的 <b>离线版</b>' +
+      '（文件名含 <b>offline</b>，引擎已内置，断网也能运行）。</li>' +
+      '</ol></div>';
+  }
+
+  function run(){
+    var src = document.getElementById('app-src').textContent;
+    try {
+      new Function(src)();
+      if (!window.__GAME) fail();
+    } catch (e) {
+      console.error('[启动失败]', e);
+      fail();
+    }
+  }
+
+  function ensure(i){
+    if (typeof Phaser !== 'undefined') return run();           // 命中静态标签或已加载
+    if (i >= SOURCES.length) return fail();                    // 全部源均不可达
+    var s = document.createElement('script');
+    s.src = SOURCES[i];
+    s.onload  = run;
+    s.onerror = function(){ ensure(i + 1); };
+    document.head.appendChild(s);
+  }
+
+  function boot(){ ensure(0); }
+  if (document.readyState === 'complete') boot();
+  else window.addEventListener('load', boot);
+})();
 </script>
 </body>
 </html>
